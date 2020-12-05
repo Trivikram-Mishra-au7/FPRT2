@@ -1,93 +1,74 @@
-const mongoose = require('mongoose');
-const bcrypt = require('bcrypt');
-const saltRounds = 10;
-const jwt = require('jsonwebtoken');
-const moment = require("moment");
+var mongoose = require("mongoose");
+const crypto = require("crypto");
+const uuidv1 = require("uuid/v1");
 
-const userSchema = mongoose.Schema({
+var userSchema = new mongoose.Schema(
+  {
     name: {
-        type:String,
-        maxlength:50
-    },
-    email: {
-        type:String,
-        trim:true,
-        unique: 1 
-    },
-    password: {
-        type: String,
-        minglength: 5
+      type: String,
+      required: true,
+      maxlength: 32,
+      trim: true
     },
     lastname: {
-        type:String,
-        maxlength: 50
+      type: String,
+      maxlength: 32,
+      trim: true
     },
-    role : {
-        type:Number,
-        default: 0 
+    email: {
+      type: String,
+      trim: true,
+      required: true,
+      unique: true
     },
-    image: String,
-    token : {
-        type: String,
+    userinfo: {
+      type: String,
+      trim: true
     },
-    tokenExp :{
-        type: Number
+    encry_password: {
+      type: String,
+      required: true
+    },
+    salt: String,
+    role: {
+      type: Number,
+      default: 0
+    },
+    purchases: {
+      type: Array,
+      default: []
     }
-})
+  },
+  { timestamps: true }
+);
 
+userSchema
+  .virtual("password")
+  .set(function(password) {
+    this._password = password;
+    this.salt = uuidv1();
+    this.encry_password = this.securePassword(password);
+  })
+  .get(function() {
+    return this._password;
+  });
 
-userSchema.pre('save', function( next ) {
-    var user = this;
-    
-    if(user.isModified('password')){    
-        // console.log('password changed')
-        bcrypt.genSalt(saltRounds, function(err, salt){
-            if(err) return next(err);
-    
-            bcrypt.hash(user.password, salt, function(err, hash){
-                if(err) return next(err);
-                user.password = hash 
-                next()
-            })
-        })
-    } else {
-        next()
+userSchema.methods = {
+  autheticate: function(plainpassword) {
+    return this.securePassword(plainpassword) === this.encry_password;
+  },
+
+  securePassword: function(plainpassword) {
+    if (!plainpassword) return "";
+    try {
+      return crypto
+        .createHmac("sha256", this.salt)
+        .update(plainpassword)
+        .digest("hex");
+    } catch (err) {
+      return "";
     }
-});
+  }
+};
 
-userSchema.methods.comparePassword = function(plainPassword,cb){
-    bcrypt.compare(plainPassword, this.password, function(err, isMatch){
-        if (err) return cb(err);
-        cb(null, isMatch)
-    })
-}
-
-userSchema.methods.generateToken = function(cb) {
-    var user = this;
-    console.log('user',user)
-    console.log('userSchema', userSchema)
-    var token =  jwt.sign(user._id.toHexString(),'secret')
-    var oneHour = moment().add(1, 'hour').valueOf();
-
-    user.tokenExp = oneHour;
-    user.token = token;
-    user.save(function (err, user){
-        if(err) return cb(err)
-        cb(null, user);
-    })
-}
-
-userSchema.statics.findByToken = function (token, cb) {
-    var user = this;
-
-    jwt.verify(token,'secret',function(err, decode){
-        user.findOne({"_id":decode, "token":token}, function(err, user){
-            if(err) return cb(err);
-            cb(null, user);
-        })
-    })
-}
-
-const User = mongoose.model('User', userSchema);
-
-module.exports = { User }
+module.exports = mongoose.model("User", userSchema);
